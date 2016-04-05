@@ -188,7 +188,7 @@ func (expr *Expression) nextSecond(t time.Time) time.Time {
 /******************************************************************************/
 
 func (expr *Expression) calculateActualDaysOfMonth(year, month int) []int {
-	actualDaysOfMonthMap := make(map[int]bool)
+	actualDaysOfMonthMap := [32]bool{}
 	firstDayOfMonth := time.Date(year, time.Month(month), 1, 0, 0, 0, 0, time.UTC)
 	lastDayOfMonth := firstDayOfMonth.AddDate(0, 1, -1)
 
@@ -266,8 +266,13 @@ func (expr *Expression) calculateActualDaysOfMonth(year, month int) []int {
 			}
 		}
 	}
-
-	return toList(actualDaysOfMonthMap)
+	var result []int
+	for i, v := range actualDaysOfMonthMap {
+		if v {
+			result = append(result, i)
+		}
+	}
+	return result
 }
 
 func workdayOfMonth(targetDom, lastDom time.Time) int {
