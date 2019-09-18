@@ -19,6 +19,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 )
 
 /******************************************************************************/
@@ -55,7 +56,6 @@ var (
 var (
 	numberTokens = map[string]int{
 		"0": 0, "1": 1, "2": 2, "3": 3, "4": 4, "5": 5, "6": 6, "7": 7, "8": 8, "9": 9,
-		"00": 0, "01": 1, "02": 2, "03": 3, "04": 4, "05": 5, "06": 6, "07": 7, "08": 8, "09": 9,
 		"10": 10, "11": 11, "12": 12, "13": 13, "14": 14, "15": 15, "16": 16, "17": 17, "18": 18, "19": 19,
 		"20": 20, "21": 21, "22": 22, "23": 23, "24": 24, "25": 25, "26": 26, "27": 27, "28": 28, "29": 29,
 		"30": 30, "31": 31, "32": 32, "33": 33, "34": 34, "35": 35, "36": 36, "37": 37, "38": 38, "39": 39,
@@ -122,7 +122,7 @@ var (
 		min:          0,
 		max:          59,
 		defaultList:  genericDefaultList[0:60],
-		valuePattern: `0?[0-9]|[1-5][0-9]`,
+		valuePattern: `[0-9]|[1-5][0-9]`,
 		atoi:         atoi,
 	}
 	minuteDescriptor = fieldDescriptor{
@@ -130,7 +130,7 @@ var (
 		min:          0,
 		max:          59,
 		defaultList:  genericDefaultList[0:60],
-		valuePattern: `0?[0-9]|[1-5][0-9]`,
+		valuePattern: `[0-9]|[1-5][0-9]`,
 		atoi:         atoi,
 	}
 	hourDescriptor = fieldDescriptor{
@@ -138,7 +138,7 @@ var (
 		min:          0,
 		max:          23,
 		defaultList:  genericDefaultList[0:24],
-		valuePattern: `0?[0-9]|1[0-9]|2[0-3]`,
+		valuePattern: `[0-9]|1[0-9]|2[0-3]`,
 		atoi:         atoi,
 	}
 	domDescriptor = fieldDescriptor{
@@ -146,7 +146,7 @@ var (
 		min:          1,
 		max:          31,
 		defaultList:  genericDefaultList[1:32],
-		valuePattern: `0?[1-9]|[12][0-9]|3[01]`,
+		valuePattern: `[1-9]|[12][0-9]|3[01]`,
 		atoi:         atoi,
 	}
 	monthDescriptor = fieldDescriptor{
@@ -154,7 +154,7 @@ var (
 		min:          1,
 		max:          12,
 		defaultList:  genericDefaultList[1:13],
-		valuePattern: `0?[1-9]|1[012]|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|march|april|june|july|august|september|october|november|december`,
+		valuePattern: `[1-9]|1[012]|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec|january|february|march|april|march|april|june|july|august|september|october|november|december`,
 		atoi: func(s string) int {
 			return monthTokens[s]
 		},
@@ -164,7 +164,7 @@ var (
 		min:          0,
 		max:          6,
 		defaultList:  genericDefaultList[0:7],
-		valuePattern: `0?[0-7]|sun|mon|tue|wed|thu|fri|sat|sunday|monday|tuesday|wednesday|thursday|friday|saturday`,
+		valuePattern: `[0-7]|sun|mon|tue|wed|thu|fri|sat|sunday|monday|tuesday|wednesday|thursday|friday|saturday`,
 		atoi: func(s string) int {
 			return dowTokens[s]
 		},
@@ -188,14 +188,16 @@ var (
 	layoutWildcardAndInterval = `^\*/(\d+)$`
 	layoutValueAndInterval    = `^(%value%)/(\d+)$`
 	layoutRangeAndInterval    = `^(%value%)-(%value%)/(\d+)$`
-	layoutLastDom             = `^l$`
-	layoutWorkdom             = `^(%value%)w$`
-	layoutLastWorkdom         = `^lw$`
-	layoutDowOfLastWeek       = `^(%value%)l$`
-	layoutDowOfSpecificWeek   = `^(%value%)#([1-5])$`
-	fieldFinder               = regexp.MustCompile(`\S+`)
-	entryFinder               = regexp.MustCompile(`[^,]+`)
-	layoutRegexp              = make(map[string]*regexp.Regexp)
+	//	layoutLastDom             = `^l(-?)(\d{1,2}?)$` // more comprehensive day-of-week expression
+	layoutLastDom           = `^l$`
+	layoutWorkdom           = `^(%value%)w$`
+	layoutLastWorkdom       = `^lw$`
+	layoutDowOfLastWeek     = `^(%value%)l$`
+	layoutDowOfSpecificWeek = `^(%value%)#([1-5])$`
+	fieldFinder             = regexp.MustCompile(`\S+`)
+	entryFinder             = regexp.MustCompile(`[^,]+`)
+	layoutRegexp            = make(map[string]*regexp.Regexp)
+	layoutMutex             = sync.RWMutex{}
 )
 
 /******************************************************************************/
@@ -482,10 +484,14 @@ func genericFieldParse(s string, desc fieldDescriptor) ([]*cronDirective, error)
 
 func makeLayoutRegexp(layout, value string) *regexp.Regexp {
 	layout = strings.Replace(layout, `%value%`, value, -1)
+	layoutMutex.RLock()
 	re := layoutRegexp[layout]
+	layoutMutex.RUnlock()
 	if re == nil {
 		re = regexp.MustCompile(layout)
+		layoutMutex.Lock()
 		layoutRegexp[layout] = re
+		layoutMutex.Unlock()
 	}
 	return re
 }
